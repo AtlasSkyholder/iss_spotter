@@ -1,12 +1,3 @@
-/**
- * Makes a single API request to retrieve the user's IP address.
- * Input:
- *   - A callback (to pass back an error or the IP string)
- * Returns (via Callback):
- *   - An error, if any (nullable)
- *   - The IP address as a string (null if error). Example: "162.245.144.188"
- */
-
 const request = require('request');
 
 const fetchMyIP = function(callback) {
@@ -29,13 +20,13 @@ const fetchMyIP = function(callback) {
 
     // if we get here, all's well and we got the data
 
-    let address = JSON.parse(body);
-    callback(error, address['ip']);
+    let ip = JSON.parse(body).ip;
+    callback(null, ip);
   });
 };
 
 const fetchCoordsByIP = function(ip, callback) {
-  let address = ip;
+  let address = 'https://ipvigilante.com/json/' + ip;
   request(address, (error, response, body) => {
     if (error) {
       callback(error, null);
@@ -47,11 +38,61 @@ const fetchCoordsByIP = function(ip, callback) {
       callback(Error(msg), null);
       return;
     }
-    let coord = JSON.parse(body);
-    let lat = coord.data['latitude'];
-    let long = coord.data['longitude'];
-    callback(error, lat, long);
+    let coord = JSON.parse(body).data;
+    let place = {};
+    place['latitude'] = coord['latitude'];
+    place['longitude'] = coord['longitude'];
+    callback(null, place);
   });
 };
 
-module.exports = { fetchMyIP, fetchCoordsByIP };
+const fetchISSFlyOverTimes = function(coords, callback) {
+
+  let lat = coords['latitude'];
+  let long = coords['longitude'];
+  let address = 'http://api.open-notify.org/iss-pass.json?lat=' + lat + '&lon=' + long;
+  request(address, (error, response, body) => {
+    if (error) {
+      callback(error, null);
+      return;
+    }
+    // if non-200 status, assume server error
+    if (response.statusCode !== 200) {
+      const msg = `It didn't work! Error: Status Code ${response.statusCode}!! The latitude ${lat} and longitude ${long} haven't been obtained`;
+      callback(Error(msg), null);
+      return;
+    }
+    // ...
+    let arr = JSON.parse(body).response;
+    callback(null , arr);
+  });
+};
+
+// iss.js 
+
+const nextISSTimesForMyLocation = function(callback) {
+  fetchMyIP((error, ip) => {
+    if (error) {
+      return callback(error, null);
+    }
+
+    fetchCoordsByIP(ip, (error, loc) => {
+      if (error) {
+        return callback(error, null);
+      }
+
+      fetchISSFlyOverTimes(loc, (error, nextPasses) => {
+        if (error) {
+          return callback(error, null);
+        }
+
+        callback(null, nextPasses);
+      });
+    });
+  });
+};
+
+// Only export nextISSTimesForMyLocation and not the other three (API request) functions.
+// This is because they are not needed by external modules.
+
+module.exports = { nextISSTimesForMyLocation };
